@@ -1,0 +1,37 @@
+version: "3.9"
+
+services:
+  backend:
+    build: .
+    container_name: ocr-saas-backend
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    env_file:
+      - .env
+    environment:
+      - MONGODB_URI=mongodb://mongo:27017/ocr-saas
+    volumes:
+      # Persist uploaded images across container restarts/redeploys.
+      - uploads-data:/app/src/uploads
+    depends_on:
+      - mongo
+    networks:
+      - ocr-saas-net
+
+  mongo:
+    image: mongo:7
+    container_name: ocr-saas-mongo
+    restart: unless-stopped
+    volumes:
+      - mongo-data:/data/db
+    networks:
+      - ocr-saas-net
+
+volumes:
+  uploads-data:
+  mongo-data:
+
+networks:
+  ocr-saas-net:
+    driver: bridge

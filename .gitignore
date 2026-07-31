@@ -1,0 +1,28 @@
+# Dependencies
+node_modules/
+
+# Environment
+.env
+.env.*
+
+# Uploads
+src/uploads/originals/*
+src/uploads/front/*
+src/uploads/back/*
+src/uploads/merged/*
+
+# Keep upload folders
+!src/uploads/originals/.gitkeep
+!src/uploads/front/.gitkeep
+!src/uploads/back/.gitkeep
+!src/uploads/merged/.gitkeep
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
