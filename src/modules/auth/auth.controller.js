@@ -64,7 +64,7 @@ export const googleCallback = asyncHandler(
         secure:
           process.env.NODE_ENV ===
           "production",
-        sameSite: "strict",
+        sameSite: "none",
         maxAge:
           7 *
           24 *
@@ -167,7 +167,7 @@ export const refresh =
             process.env.NODE_ENV ===
             "production",
           sameSite:
-            "strict",
+            "none",
           maxAge:
             7 *
             24 *
