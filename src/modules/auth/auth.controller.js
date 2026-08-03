@@ -102,96 +102,70 @@ export const me =
     }
   );
 
-export const refresh =
-  asyncHandler(
-    async (req, res) => {
-      const token =
-        req.cookies
-          ?.refreshToken;
+export const refresh = asyncHandler(async (req, res) => {
+  console.log("========== REFRESH ==========");
+  console.log("Cookies:", req.cookies);
+  console.log("Headers Cookie:", req.headers.cookie);
 
-      if (!token) {
-        return res
-          .status(
-            StatusCodes.UNAUTHORIZED
-          )
-          .json({
-            success: false,
-            message:
-              "Refresh token missing.",
-          });
+  const token = req.cookies?.refreshToken;
+
+  console.log("Refresh Token:", token);
+
+  if (!token) {
+    return res.status(StatusCodes.UNAUTHORIZED).json({
+      success: false,
+      message: "Refresh token missing.",
+    });
+  }
+
+  let decoded;
+
+  try {
+    decoded = verifyToken(
+      token,
+      process.env.REFRESH_TOKEN_SECRET
+    );
+
+    console.log("Decoded:", decoded);
+  } catch (err) {
+    console.error("Verify Error:", err);
+
+    throw new ApiError(
+      StatusCodes.UNAUTHORIZED,
+      "Invalid or expired refresh token."
+    );
+  }
+
+  const payload = {
+    id: decoded.id,
+    email: decoded.email,
+    role: decoded.role,
+    companyId: decoded.companyId,
+    tenantId: decoded.tenantId,
+  };
+
+  const accessToken = generateAccessToken(payload);
+  const refreshToken = generateRefreshToken(payload);
+
+  res.cookie("refreshToken", refreshToken, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "none",
+    maxAge: 7 * 24 * 60 * 60 * 1000,
+  });
+
+  console.log("✅ Refresh successful");
+
+  res.status(StatusCodes.OK).json(
+    new ApiResponse(
+      StatusCodes.OK,
+      "Token refreshed successfully.",
+      {
+        accessToken,
       }
-
-      let decoded;
-
-      try {
-        decoded = verifyToken(
-          token,
-          process.env
-            .REFRESH_TOKEN_SECRET
-        );
-      } catch (err) {
-        throw new ApiError(
-          StatusCodes.UNAUTHORIZED,
-          "Invalid or expired refresh token."
-        );
-      }
-
-      const payload = {
-        id: decoded.id,
-        email:
-          decoded.email,
-        role:
-          decoded.role,
-        companyId:
-          decoded.companyId,
-        tenantId:
-          decoded.tenantId,
-      };
-
-      const accessToken =
-        generateAccessToken(
-          payload
-        );
-
-      const refreshToken =
-        generateRefreshToken(
-          payload
-        );
-
-      res.cookie(
-        "refreshToken",
-        refreshToken,
-        {
-          httpOnly: true,
-          secure:
-            process.env.NODE_ENV ===
-            "production",
-          sameSite:
-            "none",
-          maxAge:
-            7 *
-            24 *
-            60 *
-            60 *
-            1000,
-        }
-      );
-
-      res
-        .status(
-          StatusCodes.OK
-        )
-        .json(
-          new ApiResponse(
-            StatusCodes.OK,
-            "Token refreshed successfully.",
-            {
-              accessToken,
-            }
-          )
-        );
-    }
+    )
   );
+});
 
 export const logout =
   asyncHandler(
