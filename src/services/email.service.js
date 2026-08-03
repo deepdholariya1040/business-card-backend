@@ -13,14 +13,18 @@ const getTransporter = () => {
   }
 
   transporter = nodemailer.createTransport({
-    host: env.SMTP_HOST,
-    port: env.SMTP_PORT,
-    secure: env.SMTP_SECURE,
-    auth: {
-      user: env.SMTP_USER,
-      pass: env.SMTP_PASS,
-    },
-  });
+  host: env.SMTP_HOST,
+  port: Number(env.SMTP_PORT),
+  secure: env.SMTP_SECURE === true || env.SMTP_SECURE === "true",
+  requireTLS: true,
+  auth: {
+    user: env.SMTP_USER,
+    pass: env.SMTP_PASS,
+  },
+  connectionTimeout: 10000,
+  greetingTimeout: 10000,
+  socketTimeout: 10000,
+});
 
   return transporter;
 };
