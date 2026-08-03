@@ -35,7 +35,7 @@ export const sendEmail = async ({ to, subject, html, text }) => {
 
   if (!mailer) {
     logger.warn(
-      `[email:disabled] SMTP not configured - would have sent "${subject}" to ${to}`
+      `[email:disabled] SMTP not configured - would have sent "${subject}" to ${to}`,
     );
     logger.info(`[email:body] ${text || html}`);
     return { delivered: false, dev: true };
@@ -67,16 +67,7 @@ export const sendEmail = async ({ to, subject, html, text }) => {
       messageId: info.messageId,
     };
   } catch (error) {
-    logger.error("❌ Failed to send email", {
-      name: error.name,
-      message: error.message,
-      code: error.code,
-      command: error.command,
-      response: error.response,
-      responseCode: error.responseCode,
-      stack: error.stack,
-    });
-
+    console.error(error);
     throw error;
   }
 };
