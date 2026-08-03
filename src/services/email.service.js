@@ -41,15 +41,44 @@ export const sendEmail = async ({ to, subject, html, text }) => {
     return { delivered: false, dev: true };
   }
 
-  await mailer.sendMail({
-    from: env.MAIL_FROM,
-    to,
-    subject,
-    html,
-    text,
-  });
+  try {
+    logger.info(`Sending email to ${to}...`);
 
-  return { delivered: true };
+    // Verify SMTP connection
+    await mailer.verify();
+    logger.info("✅ SMTP connection verified.");
+
+    // Send email
+    const info = await mailer.sendMail({
+      from: env.MAIL_FROM,
+      to,
+      subject,
+      html,
+      text,
+    });
+
+    logger.info("✅ Email sent successfully.", {
+      messageId: info.messageId,
+      response: info.response,
+    });
+
+    return {
+      delivered: true,
+      messageId: info.messageId,
+    };
+  } catch (error) {
+    logger.error("❌ Failed to send email", {
+      name: error.name,
+      message: error.message,
+      code: error.code,
+      command: error.command,
+      response: error.response,
+      responseCode: error.responseCode,
+      stack: error.stack,
+    });
+
+    throw error;
+  }
 };
 
 export const sendOtpEmail = async (email, otp, purpose) => {
