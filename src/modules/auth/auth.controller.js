@@ -30,77 +30,41 @@ const REFRESH_COOKIE_OPTIONS = {
   httpOnly: true,
   secure: env.NODE_ENV === "production",
   sameSite: "none",
+  path: "/",
   maxAge: 7 * 24 * 60 * 60 * 1000,
 };
 
-export const googleCallback = asyncHandler(
-  async (req, res) => {
-    const {
-      user,
-      accessToken,
-      refreshToken,
-    } = await loginWithGoogle(
-      req.user
+export const googleCallback = asyncHandler(async (req, res) => {
+  const { user, accessToken, refreshToken } = await loginWithGoogle(req.user);
+
+  await createAuditLog({
+    actorId: user._id,
+    actorRole: user.role,
+    action: "LOGIN",
+    tenantId: user.tenantId,
+    companyId: user.companyId,
+    ip: req.ip,
+    userAgent: req.headers["user-agent"],
+  });
+
+  res.cookie("refreshToken", refreshToken, REFRESH_COOKIE_OPTIONS);
+
+  res.redirect(`${env.CLIENT_URL}/#token=${accessToken}`);
+});
+
+export const me = asyncHandler(async (req, res) => {
+  const user = await getCurrentUser(req.user.id);
+
+  res
+    .status(StatusCodes.OK)
+    .json(
+      new ApiResponse(
+        StatusCodes.OK,
+        "Current user fetched successfully.",
+        user,
+      ),
     );
-
-    await createAuditLog({
-      actorId: user._id,
-      actorRole: user.role,
-      action: "LOGIN",
-      tenantId: user.tenantId,
-      companyId: user.companyId,
-      ip: req.ip,
-      userAgent:
-        req.headers[
-          "user-agent"
-        ],
-    });
-
-    res.cookie(
-      "refreshToken",
-      refreshToken,
-      {
-        httpOnly: true,
-        secure:
-          process.env.NODE_ENV ===
-          "production",
-        sameSite: "none",
-        maxAge:
-          7 *
-          24 *
-          60 *
-          60 *
-          1000,
-      }
-    );
-
-    res.redirect(
-      `${env.CLIENT_URL}/#token=${accessToken}`
-    );
-  }
-);
-
-export const me =
-  asyncHandler(
-    async (req, res) => {
-      const user =
-        await getCurrentUser(
-          req.user.id
-        );
-
-      res
-        .status(
-          StatusCodes.OK
-        )
-        .json(
-          new ApiResponse(
-            StatusCodes.OK,
-            "Current user fetched successfully.",
-            user
-          )
-        );
-    }
-  );
+});
 
 export const refresh = asyncHandler(async (req, res) => {
   console.log("========== REFRESH ==========");
@@ -121,10 +85,7 @@ export const refresh = asyncHandler(async (req, res) => {
   let decoded;
 
   try {
-    decoded = verifyToken(
-      token,
-      process.env.REFRESH_TOKEN_SECRET
-    );
+    decoded = verifyToken(token, process.env.REFRESH_TOKEN_SECRET);
 
     console.log("Decoded:", decoded);
   } catch (err) {
@@ -132,7 +93,7 @@ export const refresh = asyncHandler(async (req, res) => {
 
     throw new ApiError(
       StatusCodes.UNAUTHORIZED,
-      "Invalid or expired refresh token."
+      "Invalid or expired refresh token.",
     );
   }
 
@@ -147,67 +108,35 @@ export const refresh = asyncHandler(async (req, res) => {
   const accessToken = generateAccessToken(payload);
   const refreshToken = generateRefreshToken(payload);
 
-  res.cookie("refreshToken", refreshToken, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "none",
-    maxAge: 7 * 24 * 60 * 60 * 1000,
-  });
+  res.cookie("refreshToken", refreshToken, REFRESH_COOKIE_OPTIONS);
 
   console.log("✅ Refresh successful");
 
   res.status(StatusCodes.OK).json(
-    new ApiResponse(
-      StatusCodes.OK,
-      "Token refreshed successfully.",
-      {
-        accessToken,
-      }
-    )
+    new ApiResponse(StatusCodes.OK, "Token refreshed successfully.", {
+      accessToken,
+    }),
   );
 });
 
-export const logout =
-  asyncHandler(
-    async (req, res) => {
-      await createAuditLog({
-        actorId:
-          req.user.id,
-        actorRole:
-          req.user.role,
-        action:
-          "LOGOUT",
-        tenantId:
-          req.user.tenantId,
-        companyId:
-          req.user.companyId,
-        ip: req.ip,
-        userAgent:
-          req.headers[
-            "user-agent"
-          ],
-      });
+export const logout = asyncHandler(async (req, res) => {
+  await createAuditLog({
+    actorId: req.user.id,
+    actorRole: req.user.role,
+    action: "LOGOUT",
+    tenantId: req.user.tenantId,
+    companyId: req.user.companyId,
+    ip: req.ip,
+    userAgent: req.headers["user-agent"],
+  });
 
-      await removeRefreshToken(
-        req.user.id
-      );
+  await removeRefreshToken(req.user.id);
 
-      res.clearCookie(
-        "refreshToken"
-      );
-
-      res
-        .status(
-          StatusCodes.OK
-        )
-        .json(
-          new ApiResponse(
-            StatusCodes.OK,
-            "Logout successful."
-          )
-        );
-    }
-  );
+  res.clearCookie("refreshToken", REFRESH_COOKIE_OPTIONS);
+  res
+    .status(StatusCodes.OK)
+    .json(new ApiResponse(StatusCodes.OK, "Logout successful."));
+});
 
 /**
  * Email OTP Authentication
@@ -221,7 +150,12 @@ export const sendRegisterOtp = asyncHandler(async (req, res) => {
   if (!name || !email) {
     return res
       .status(StatusCodes.BAD_REQUEST)
-      .json(new ApiResponse(StatusCodes.BAD_REQUEST, "Name and email are required."));
+      .json(
+        new ApiResponse(
+          StatusCodes.BAD_REQUEST,
+          "Name and email are required.",
+        ),
+      );
   }
 
   const result = await requestRegisterOtp({
@@ -242,7 +176,9 @@ export const verifyRegisterOtp = asyncHandler(async (req, res) => {
   if (!email || !otp) {
     return res
       .status(StatusCodes.BAD_REQUEST)
-      .json(new ApiResponse(StatusCodes.BAD_REQUEST, "Email and OTP are required."));
+      .json(
+        new ApiResponse(StatusCodes.BAD_REQUEST, "Email and OTP are required."),
+      );
   }
 
   const user = await verifyOtp({ email, otp, purpose: "REGISTER" });
@@ -268,7 +204,7 @@ export const verifyRegisterOtp = asyncHandler(async (req, res) => {
     new ApiResponse(StatusCodes.CREATED, "Account created successfully.", {
       user,
       accessToken,
-    })
+    }),
   );
 });
 
@@ -298,7 +234,9 @@ export const verifyLoginOtp = asyncHandler(async (req, res) => {
   if (!email || !otp) {
     return res
       .status(StatusCodes.BAD_REQUEST)
-      .json(new ApiResponse(StatusCodes.BAD_REQUEST, "Email and OTP are required."));
+      .json(
+        new ApiResponse(StatusCodes.BAD_REQUEST, "Email and OTP are required."),
+      );
   }
 
   const user = await verifyOtp({ email, otp, purpose: "LOGIN" });
@@ -324,6 +262,6 @@ export const verifyLoginOtp = asyncHandler(async (req, res) => {
     new ApiResponse(StatusCodes.OK, "Login successful.", {
       user,
       accessToken,
-    })
+    }),
   );
 });
