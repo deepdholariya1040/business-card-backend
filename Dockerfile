@@ -1,4 +1,4 @@
-FROM node:22-alpine AS base
+FROM node:20-alpine AS base
 
 # sharp/heic-convert need these at build time on alpine
 RUN apk add --no-cache libc6-compat vips-dev
