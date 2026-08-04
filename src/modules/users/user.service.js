@@ -5,10 +5,24 @@ import BusinessCard from "../business-cards/businessCard.model.js";
 import { ROLES } from "../../config/roles.js";
 import ApiError from "../../utils/ApiError.js";
 
+import {
+  assignOrCreateUser,
+  notifyAssignmentResult,
+} from "./userAssignment.service.js";
+
 // NORMAL USERS ONLY
 export const getUsers = async () => {
   return User.find({
     role: ROLES.NORMAL_USER
+  })
+    .select("-refreshToken")
+    .sort({ createdAt: -1 });
+};
+
+// SUPER ADMINS ONLY
+export const getSuperAdmins = async () => {
+  return User.find({
+    role: ROLES.SUPER_ADMIN,
   })
     .select("-refreshToken")
     .sort({ createdAt: -1 });
@@ -115,30 +129,36 @@ export const getUserById = async (
 
 };
 
+// Assign-or-create flow: the frontend sends only { email, role,
+// companyId?, canManageStaff? } - no `name` is required or accepted
+// anymore. If a user with this email already exists, their role /
+// company assignment is updated in place (same _id, password, OAuth
+// info, refresh tokens, and audit history preserved). Otherwise a new
+// user is created. This same helper (assignOrCreateUser) is reused by
+// every other assignment entry point (company creation's main admin,
+// addCompanyAdmin, addStaff, changeMainAdmin) so the behavior is
+// identical everywhere.
 export const createUser = async (
   currentUser,
   payload
 ) => {
 
   const {
-    name,
     email,
     role,
     companyId = null,
     canManageStaff = false
   } = payload;
 
-  const existingUser =
-    await User.findOne({
-      email
-    });
-
-  if (existingUser) {
+  if (!email) {
     throw new ApiError(
-      409,
-      "User already exists."
+      400,
+      "Email is required."
     );
   }
+
+  const normalizedEmail =
+    String(email).trim().toLowerCase();
 
   switch (
     currentUser.role
@@ -226,68 +246,95 @@ export const createUser = async (
       );
     }
 
-    if (
-      role ===
-      ROLES.COMPANY_ADMIN
-    ) {
+    // Plan limits (maxCompanyAdmins / maxStaff) should only block
+    // requests that actually add a *new* member to that role in this
+    // company - not a no-op re-assignment of a user who already holds
+    // that exact role/company.
+    const existingUserForLimitCheck =
+      await User.findOne({
+        email: normalizedEmail
+      });
 
-      const adminCount =
-        await User.countDocuments(
-          {
-            companyId,
-            role:
-              ROLES.COMPANY_ADMIN
-          }
-        );
+    const alreadyHoldsRoleHere =
+      !!existingUserForLimitCheck &&
+      existingUserForLimitCheck.role === role &&
+      !!existingUserForLimitCheck.companyId &&
+      String(existingUserForLimitCheck.companyId) ===
+        String(companyId);
+
+    if (!alreadyHoldsRoleHere) {
 
       if (
-        adminCount >=
-        company.maxCompanyAdmins
+        role ===
+        ROLES.COMPANY_ADMIN
       ) {
-        throw new ApiError(
-          400,
-          "Company Admin limit reached."
-        );
+
+        const adminCount =
+          await User.countDocuments(
+            {
+              companyId,
+              role:
+                ROLES.COMPANY_ADMIN
+            }
+          );
+
+        if (
+          adminCount >=
+          company.maxCompanyAdmins
+        ) {
+          throw new ApiError(
+            400,
+            "Company Admin limit reached."
+          );
+        }
       }
-    }
-
-    if (
-      role ===
-      ROLES.STAFF
-    ) {
-
-      const staffCount =
-        await User.countDocuments(
-          {
-            companyId,
-            role:
-              ROLES.STAFF
-          }
-        );
 
       if (
-        staffCount >=
-        company.maxStaff
+        role ===
+        ROLES.STAFF
       ) {
-        throw new ApiError(
-          400,
-          "Staff limit reached."
-        );
+
+        const staffCount =
+          await User.countDocuments(
+            {
+              companyId,
+              role:
+                ROLES.STAFF
+            }
+          );
+
+        if (
+          staffCount >=
+          company.maxStaff
+        ) {
+          throw new ApiError(
+            400,
+            "Staff limit reached."
+          );
+        }
       }
     }
   }
 
-  return User.create({
-    name,
-    email,
-    role,
-    companyId,
-    tenantId:
+  const result =
+    await assignOrCreateUser({
+      email: normalizedEmail,
+      role,
       companyId,
-    canManageStaff,
-    createdBy:
-      currentUser._id
-  });
+      tenantId: companyId,
+      canManageStaff,
+      createdBy:
+        currentUser._id
+    });
+
+  // Best-effort notification email - never blocks/breaks the
+  // assignment itself if the mail provider is unavailable.
+  notifyAssignmentResult(
+    result,
+    { companyId }
+  ).catch(() => {});
+
+  return result;
 
 };
 

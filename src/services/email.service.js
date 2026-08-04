@@ -76,6 +76,68 @@ export const sendEmail = async ({ to, subject, html, text }) => {
   }
 };
 
+// Human-friendly labels for role enum values, e.g. "MAIN_COMPANY_ADMIN"
+// -> "Main Company Admin". Used only for email copy.
+const formatRoleLabel = (role) => {
+  if (!role) return "user";
+
+  return String(role)
+    .toLowerCase()
+    .split("_")
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+};
+
+/**
+ * Sent when the assign-or-create user flow creates a brand new user
+ * (Main Company Admin / Company Admin / Staff / any future role
+ * assignment). Reuses the same mailing architecture as the existing
+ * OTP email above.
+ */
+export const sendUserWelcomeEmail = async (email, { role, companyName } = {}) => {
+  const roleLabel = formatRoleLabel(role);
+  const companyLine = companyName ? ` at ${companyName}` : "";
+
+  const subject = "Your account has been created";
+
+  const text = `An account has been created for you as ${roleLabel}${companyLine}. Sign in using this email address (${email}) via Google Sign-In, or use the email login option, to get started.`;
+
+  const html = `
+    <div style="font-family:sans-serif;font-size:15px;color:#111">
+      <p>Welcome!</p>
+      <p>An account has been created for you as <strong>${roleLabel}</strong>${companyLine}.</p>
+      <p>You can sign in using this email address (<strong>${email}</strong>) to get started.</p>
+      <p style="color:#666">If you weren't expecting this, you can safely ignore this email.</p>
+    </div>
+  `;
+
+  return sendEmail({ to: email, subject, html, text });
+};
+
+/**
+ * Sent when the assign-or-create user flow updates an *existing* user's
+ * role and/or company assignment, instead of creating a duplicate
+ * account. Lets the user know their existing account still works.
+ */
+export const sendUserRoleUpdateEmail = async (email, { role, companyName } = {}) => {
+  const roleLabel = formatRoleLabel(role);
+  const companyLine = companyName ? ` at ${companyName}` : "";
+
+  const subject = "Your account access has been updated";
+
+  const text = `Your role has been updated to ${roleLabel}${companyLine}. You can continue to log in with your existing account - no new account was created.`;
+
+  const html = `
+    <div style="font-family:sans-serif;font-size:15px;color:#111">
+      <p>Your account access has changed.</p>
+      <p>Your role is now <strong>${roleLabel}</strong>${companyLine}.</p>
+      <p>You can log in with your existing account - no action is required.</p>
+    </div>
+  `;
+
+  return sendEmail({ to: email, subject, html, text });
+};
+
 export const sendOtpEmail = async (email, otp, purpose) => {
   const subject =
     purpose === "REGISTER"
@@ -100,4 +162,9 @@ export const sendOtpEmail = async (email, otp, purpose) => {
   return sendEmail({ to: email, subject, html, text });
 };
 
-export default { sendEmail, sendOtpEmail };
+export default {
+  sendEmail,
+  sendOtpEmail,
+  sendUserWelcomeEmail,
+  sendUserRoleUpdateEmail,
+};

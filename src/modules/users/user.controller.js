@@ -6,6 +6,7 @@ import asyncHandler from "../../utils/asyncHandler.js";
 
 import {
   getUsers,
+  getSuperAdmins,
   getCompanyUsers,
   getUserById,
   getUserCards,
@@ -36,6 +37,25 @@ export const getAllUsers = asyncHandler(async (req, res) => {
     );
 });
 
+export const getAllSuperAdmins = asyncHandler(async (req, res) => {
+  if (req.user.role !== ROLES.SUPER_ADMIN) {
+    throw new ApiError(
+      StatusCodes.FORBIDDEN,
+      "Only Super Admin can access Super Admins."
+    );
+  }
+
+  const users = await getSuperAdmins();
+
+  return res.status(StatusCodes.OK).json(
+    new ApiResponse(
+      StatusCodes.OK,
+      "Super Admins fetched successfully.",
+      users
+    )
+  );
+});
+
 export const getSingleUser = asyncHandler(async (req, res) => {
   const user = await getUserById(req.params.id);
 
@@ -57,12 +77,17 @@ export const getSingleUser = asyncHandler(async (req, res) => {
 });
 
 export const createNewUser = asyncHandler(async (req, res) => {
-  const user = await createUser(req.user, req.body);
+  // createUser now implements the assign-or-create flow: if a user with
+  // this email already exists, their role/company is updated instead of
+  // creating a duplicate. `isNewUser` tells us which happened so we can
+  // log the right audit action and return the right status/message,
+  // while the response `data` stays a plain user object either way.
+  const { user, isNewUser } = await createUser(req.user, req.body);
 
   await createAuditLog({
     actorId: req.user.id,
     actorRole: req.user.role,
-    action: "CREATE_USER",
+    action: isNewUser ? "CREATE_USER" : "UPDATE_USER",
     targetId: user._id,
     tenantId: req.user.tenantId,
     companyId: req.user.companyId,
@@ -70,11 +95,17 @@ export const createNewUser = asyncHandler(async (req, res) => {
     userAgent: req.headers["user-agent"],
   });
 
+  const statusCode = isNewUser
+    ? StatusCodes.CREATED
+    : StatusCodes.OK;
+
+  const message = isNewUser
+    ? "User created successfully."
+    : "User assigned successfully.";
+
   res
-    .status(StatusCodes.CREATED)
-    .json(
-      new ApiResponse(StatusCodes.CREATED, "User created successfully.", user),
-    );
+    .status(statusCode)
+    .json(new ApiResponse(statusCode, message, user));
 });
 
 export const updateExistingUser = asyncHandler(async (req, res) => {

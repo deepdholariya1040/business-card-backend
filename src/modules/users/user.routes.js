@@ -4,6 +4,7 @@ import authMiddleware from "../../middlewares/auth.middleware.js";
 
 import {
   getAllUsers,
+  getAllSuperAdmins,
   getAllCompanyUsers,
   getSingleUser,
   getUserCardsController,
@@ -27,7 +28,14 @@ router.get(
   getAllUsers
 );
 
-// Company Users (Super Admin / Main Company Admin / Company Admin)
+// Super Admin -> Super Admins
+router.get(
+  "/super-admins",
+  getAllSuperAdmins
+);
+
+// Company Users
+// (Super Admin / Main Company Admin / Company Admin)
 router.get(
   "/company-users",
   getAllCompanyUsers
@@ -38,6 +46,7 @@ router.get(
 // IMPORTANT:
 // This route must be above "/:id"
 // ======================================================
+
 router.get(
   "/:id/cards",
   getUserCardsController
@@ -46,6 +55,7 @@ router.get(
 // ======================================================
 // SINGLE USER
 // ======================================================
+
 router.get(
   "/:id",
   getSingleUser
@@ -54,6 +64,7 @@ router.get(
 // ======================================================
 // CREATE USER
 // ======================================================
+
 router.post(
   "/",
   createNewUser
@@ -62,6 +73,7 @@ router.post(
 // ======================================================
 // UPDATE USER
 // ======================================================
+
 router.put(
   "/:id",
   updateExistingUser
@@ -70,6 +82,7 @@ router.put(
 // ======================================================
 // DELETE USER
 // ======================================================
+
 router.delete(
   "/:id",
   removeUser

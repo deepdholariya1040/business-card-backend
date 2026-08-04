@@ -26,10 +26,18 @@ import {
 
 import { createAuditLog } from "../audit-logs/audit.service.js";
 
+// const REFRESH_COOKIE_OPTIONS = {
+//   httpOnly: true,
+//   secure: env.NODE_ENV === "production",
+//   sameSite: "none",
+//   path: "/",
+//   maxAge: 7 * 24 * 60 * 60 * 1000,
+// };
+
 const REFRESH_COOKIE_OPTIONS = {
   httpOnly: true,
-  secure: env.NODE_ENV === "production",
-  sameSite: "none",
+  secure: false,
+  sameSite: "lax",
   path: "/",
   maxAge: 7 * 24 * 60 * 60 * 1000,
 };

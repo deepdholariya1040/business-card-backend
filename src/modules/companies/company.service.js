@@ -6,6 +6,12 @@ import { ROLES } from "../../config/roles.js";
 
 import BusinessCard from "../business-cards/businessCard.model.js";
 
+import {
+  assignOrCreateUser,
+  notifyAssignmentResult,
+  runWithOptionalTransaction,
+} from "../users/userAssignment.service.js";
+
 
 // Get Companies
 export const getCompanies = async (currentUser) => {
@@ -102,69 +108,84 @@ export const getCompanyById = async (id, currentUser) => {
 };
 
 // Create Company
-export const createCompany = async (
-  payload
-) => {
+export const createCompany = async (payload) => {
 
   const {
+    // mainAdminName is intentionally ignored - the frontend no longer
+    // sends (or is required to send) a name. If an older frontend still
+    // sends it, it's simply not used; the backend derives everything
+    // else from mainAdminEmail via the shared assign-or-create flow.
+    mainAdminName,
     mainAdminEmail,
+    scanLimits = {},
     ...companyData
   } = payload;
 
-
-  const user =
-    await User.findOne({
-      email: mainAdminEmail
-    });
-
-
-  if (!user) {
+  if (!mainAdminEmail) {
     throw new ApiError(
-      404,
-      "Main admin user not found."
+      400,
+      "Main admin email is required."
     );
   }
 
+  const normalizedEmail =
+    String(mainAdminEmail).trim().toLowerCase();
 
-  const company =
-    await Company.create({
-      ...companyData,
+  // Company creation + main-admin assignment touch two collections, so
+  // this runs inside a transaction where the deployment supports one
+  // (falls back to a plain sequential write on standalone MongoDB).
+  const { company, assignment } = await runWithOptionalTransaction(
+    async (session) => {
 
-      scanLimits: {
-        daily: 25,
-        monthly: 500,
-        yearly: 5000
-      }
-    });
+      const createOptions = session ? { session } : undefined;
 
+      const [createdCompany] = await Company.create(
+        [
+          {
+            ...companyData,
 
-  user.role =
-    ROLES.MAIN_COMPANY_ADMIN;
+            scanLimits: {
+              daily: Number(scanLimits.daily ?? 25),
+              monthly: Number(scanLimits.monthly ?? 500),
+              yearly: Number(scanLimits.yearly ?? 5000),
+            },
+          },
+        ],
+        createOptions
+      );
 
-  user.companyId =
-    company._id;
+      // Assign-or-create the Main Company Admin: if mainAdminEmail
+      // already belongs to an existing user, that user is updated
+      // in place (no duplicate). Otherwise a new user is created.
+      const result = await assignOrCreateUser(
+        {
+          email: normalizedEmail,
+          role: ROLES.MAIN_COMPANY_ADMIN,
+          companyId: createdCompany._id,
+          tenantId: createdCompany._id,
+          canManageStaff: true,
+        },
+        { session }
+      );
 
-  user.tenantId =
-    company._id;
+      // Link company with main admin
+      createdCompany.mainAdminId = result.user._id;
 
-  user.canManageStaff =
-    true;
+      await createdCompany.save(
+        session ? { session } : undefined
+      );
 
+      return { company: createdCompany, assignment: result };
+    }
+  );
 
-  await user.save();
+  // Best-effort notification email, sent only after the transaction
+  // has actually committed.
+  notifyAssignmentResult(assignment, {
+    companyId: company._id,
+  }).catch(() => {});
 
-
-  company.mainAdminId =
-    user._id;
-
-
-  await company.save();
-
-
-  return Company.findById(
-    company._id
-  )
-  .populate(
+  return Company.findById(company._id).populate(
     "mainAdminId",
     "name email"
   );
@@ -369,18 +390,15 @@ export const changeMainAdmin = async (
   }
 
 
-  const newAdmin =
-    await User.findOne({
-      email
-    });
-
-
-  if (!newAdmin) {
+  if (!email) {
     throw new ApiError(
-      404,
-      "User not found."
+      400,
+      "Email is required."
     );
   }
+
+  const normalizedEmail =
+    String(email).trim().toLowerCase();
 
 
   // Remove old main admin
@@ -405,28 +423,32 @@ export const changeMainAdmin = async (
   }
 
 
-  // Assign new main admin
-  newAdmin.role =
-    ROLES.MAIN_COMPANY_ADMIN;
-
-  newAdmin.companyId =
-    company._id;
-
-  newAdmin.tenantId =
-    company._id;
-
-  newAdmin.canManageStaff =
-    true;
-
-
-  await newAdmin.save();
+  // Assign the new main admin using the shared assign-or-create flow:
+  // if a user with this email already exists, it's updated in place
+  // (no duplicate); otherwise a new user is created. This keeps the
+  // "change main admin" flow consistent with every other role
+  // assignment entry point.
+  const result =
+    await assignOrCreateUser({
+      email: normalizedEmail,
+      role: ROLES.MAIN_COMPANY_ADMIN,
+      companyId: company._id,
+      tenantId: company._id,
+      canManageStaff: true
+    });
 
 
   company.mainAdminId =
-    newAdmin._id;
+    result.user._id;
 
 
   await company.save();
+
+
+  notifyAssignmentResult(
+    result,
+    { companyId: company._id }
+  ).catch(() => {});
 
 
   return company;
@@ -442,34 +464,32 @@ export const addCompanyAdmin = async (
   email,
   currentUser
 ) => {
-
   if (
-    currentUser.role !==
-    ROLES.MAIN_COMPANY_ADMIN
+    currentUser.role !== ROLES.MAIN_COMPANY_ADMIN
   ) {
-
     throw new ApiError(
       403,
       "Only Main Company Admin can add Company Admin."
     );
   }
 
-
   if (
-    String(currentUser.companyId) !==
-    String(companyId)
+    String(currentUser.companyId) !== String(companyId)
   ) {
-
     throw new ApiError(
       403,
       "Access denied."
     );
   }
 
+  if (!email) {
+    throw new ApiError(
+      400,
+      "Email is required."
+    );
+  }
 
-  const company =
-    await Company.findById(companyId);
-
+  const company = await Company.findById(companyId);
 
   if (!company) {
     throw new ApiError(
@@ -478,61 +498,51 @@ export const addCompanyAdmin = async (
     );
   }
 
+  const normalizedEmail = String(email).trim().toLowerCase();
 
-  const adminCount =
-    await User.countDocuments({
+  // Only enforce the admin-count limit when this assignment actually
+  // adds a *new* Company Admin to this company - not when re-assigning
+  // a user who already holds that exact role/company (a no-op).
+  const existingUser = await User.findOne({
+    email: normalizedEmail,
+  });
+
+  const alreadyCompanyAdminHere =
+    !!existingUser &&
+    existingUser.role === ROLES.COMPANY_ADMIN &&
+    !!existingUser.companyId &&
+    String(existingUser.companyId) === String(companyId);
+
+  if (!alreadyCompanyAdminHere) {
+    const adminCount = await User.countDocuments({
       companyId,
-      role:
-        ROLES.COMPANY_ADMIN
+      role: ROLES.COMPANY_ADMIN,
     });
 
-
-  if (
-    adminCount >=
-    company.maxCompanyAdmins
-  ) {
-
-    throw new ApiError(
-      400,
-      "Company admin limit reached."
-    );
+    if (adminCount >= company.maxCompanyAdmins) {
+      throw new ApiError(
+        400,
+        "Company admin limit reached."
+      );
+    }
   }
 
+  // Assign-or-create: updates the existing user in place if the email
+  // is already registered, otherwise creates a new Company Admin.
+  const result = await assignOrCreateUser({
+    email: normalizedEmail,
+    role: ROLES.COMPANY_ADMIN,
+    companyId: company._id,
+    tenantId: company._id,
+    canManageStaff: true,
+  });
 
+  notifyAssignmentResult(result, {
+    companyId: company._id,
+  }).catch(() => {});
 
-  const user =
-    await User.findOne({
-      email
-    });
-
-
-  if (!user) {
-    throw new ApiError(
-      404,
-      "User not found."
-    );
-  }
-
-
-
-  user.role =
-    ROLES.COMPANY_ADMIN;
-
-  user.companyId =
-    company._id;
-
-  user.tenantId =
-    company._id;
-
-
-  await user.save();
-
-
-  return user;
+  return result.user;
 };
-
-
-
 
 
 // Remove Company Admin
@@ -606,38 +616,33 @@ export const addStaff = async (
   email,
   currentUser
 ) => {
-
-
   if (
-    currentUser.role !==
-    ROLES.MAIN_COMPANY_ADMIN &&
-    currentUser.role !==
-    ROLES.COMPANY_ADMIN
+    currentUser.role !== ROLES.MAIN_COMPANY_ADMIN &&
+    currentUser.role !== ROLES.COMPANY_ADMIN
   ) {
-
     throw new ApiError(
       403,
       "Only Company Admin can add staff."
     );
   }
 
-
   if (
-    String(currentUser.companyId) !==
-    String(companyId)
+    String(currentUser.companyId) !== String(companyId)
   ) {
-
     throw new ApiError(
       403,
       "Access denied."
     );
   }
 
+  if (!email) {
+    throw new ApiError(
+      400,
+      "Email is required."
+    );
+  }
 
-
-  const company =
-    await Company.findById(companyId);
-
+  const company = await Company.findById(companyId);
 
   if (!company) {
     throw new ApiError(
@@ -646,64 +651,51 @@ export const addStaff = async (
     );
   }
 
+  const normalizedEmail = email.toLowerCase().trim();
 
+  // Only enforce the staff-count limit when this assignment actually
+  // adds a *new* staff member to this company - not when re-assigning
+  // a user who already holds that exact role/company (a no-op).
+  const existingUser = await User.findOne({
+    email: normalizedEmail,
+  });
 
-  const staffCount =
-    await User.countDocuments({
+  const alreadyStaffHere =
+    !!existingUser &&
+    existingUser.role === ROLES.STAFF &&
+    !!existingUser.companyId &&
+    String(existingUser.companyId) === String(companyId);
+
+  if (!alreadyStaffHere) {
+    const staffCount = await User.countDocuments({
       companyId,
-      role:
-        ROLES.STAFF
+      role: ROLES.STAFF,
     });
 
-
-
-  if (
-    staffCount >=
-    company.maxStaff
-  ) {
-
-    throw new ApiError(
-      400,
-      "Staff limit reached."
-    );
+    if (staffCount >= company.maxStaff) {
+      throw new ApiError(
+        400,
+        "Staff limit reached."
+      );
+    }
   }
 
+  // Assign-or-create: updates the existing user in place if the email
+  // is already registered, otherwise creates a new Staff user.
+  const result = await assignOrCreateUser({
+    email: normalizedEmail,
+    role: ROLES.STAFF,
+    companyId: company._id,
+    tenantId: company._id,
+    canManageStaff: false,
+  });
 
+  notifyAssignmentResult(result, {
+    companyId: company._id,
+  }).catch(() => {});
 
-
-  const user =
-    await User.findOne({
-      email
-    });
-
-
-  if (!user) {
-    throw new ApiError(
-      404,
-      "User not found."
-    );
-  }
-
-
-
-  user.role =
-    ROLES.STAFF;
-
-
-  user.companyId =
-    company._id;
-
-
-  user.tenantId =
-    company._id;
-
-
-  await user.save();
-
-
-  return user;
+  return result.user;
 };
-
 
 
 // Remove Staff
@@ -1127,17 +1119,57 @@ export const changeUserRole = async (
     );
   }
 
+  // Store previous values before update
+  const previousRole = user.role;
+  const previousCompanyId = user.companyId
+    ? String(user.companyId)
+    : null;
+
+  // No change required
+  if (
+    previousRole === role &&
+    previousCompanyId === String(companyId)
+  ) {
+    return user;
+  }
+
+  // Update role
   user.role = role;
 
   if (role === ROLES.STAFF) {
     user.canManageStaff = false;
   }
 
-  if (role === ROLES.COMPANY_ADMIN) {
+  if (
+    role === ROLES.COMPANY_ADMIN ||
+    role === ROLES.MAIN_COMPANY_ADMIN
+  ) {
     user.canManageStaff = true;
   }
 
   await user.save();
+
+  // Send role change email
+  await notifyAssignmentResult(
+    {
+      user,
+      isNewUser: false,
+      roleChanged: previousRole !== user.role,
+      companyChanged:
+        previousCompanyId !==
+        (user.companyId
+          ? String(user.companyId)
+          : null),
+    },
+    {
+      companyId,
+    }
+  ).catch((err) => {
+    console.error(
+      "Role change email failed:",
+      err.message
+    );
+  });
 
   return user;
 };
