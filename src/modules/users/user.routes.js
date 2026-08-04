@@ -9,6 +9,7 @@ import {
   getSingleUser,
   getUserCardsController,
   createNewUser,
+  createSuperAdmin,
   updateExistingUser,
   removeUser,
 } from "./user.controller.js";
@@ -68,6 +69,15 @@ router.get(
 router.post(
   "/",
   createNewUser
+);
+
+// ======================================================
+// CREATE SUPER ADMIN
+// ======================================================
+
+router.post(
+  "/super-admin",
+  createSuperAdmin
 );
 
 // ======================================================

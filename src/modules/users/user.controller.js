@@ -11,6 +11,7 @@ import {
   getUserById,
   getUserCards,
   createUser,
+  createSuperAdmin as createSuperAdminService,
   updateUser,
   deleteUser,
 } from "./user.service.js";
@@ -244,6 +245,36 @@ export const getAllCompanyUsers = asyncHandler(async (req, res) => {
       StatusCodes.OK,
       "Company users fetched successfully.",
       users
+    )
+  );
+});
+
+export const createSuperAdmin = asyncHandler(async (req, res) => {
+  if (req.user.role !== ROLES.SUPER_ADMIN) {
+    throw new ApiError(
+      StatusCodes.FORBIDDEN,
+      "Only Super Admin can create another Super Admin."
+    );
+  }
+
+  const user = await createSuperAdminService(req.body, req.user);
+
+  await createAuditLog({
+    actorId: req.user.id,
+    actorRole: req.user.role,
+    action: "CREATE_SUPER_ADMIN",
+    targetId: user._id,
+    tenantId: null,
+    companyId: null,
+    ip: req.ip,
+    userAgent: req.headers["user-agent"],
+  });
+
+  return res.status(StatusCodes.CREATED).json(
+    new ApiResponse(
+      StatusCodes.CREATED,
+      "Super Admin created successfully.",
+      user
     )
   );
 });

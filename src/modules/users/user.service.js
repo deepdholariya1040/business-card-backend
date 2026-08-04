@@ -10,6 +10,9 @@ import {
   notifyAssignmentResult,
 } from "./userAssignment.service.js";
 
+import { sendUserWelcomeEmail } from "../../services/email.service.js";
+import logger from "../../config/logger.js";
+
 // NORMAL USERS ONLY
 export const getUsers = async () => {
   return User.find({
@@ -385,4 +388,36 @@ export const getUserCards =
       createdAt: -1
     });
 
+};
+
+export const createSuperAdmin = async ({ name, email }, currentUser) => {
+  const normalizedEmail = email.trim().toLowerCase();
+
+  const existingUser = await User.findOne({ email: normalizedEmail });
+
+  if (existingUser) {
+    throw new Error("User already exists.");
+  }
+
+  const user = await User.create({
+    name,
+    email: normalizedEmail,
+    role: ROLES.SUPER_ADMIN,
+    provider: "GOOGLE",
+    googleId: null,
+    avatar: null,
+    isVerified: false,
+    createdBy: currentUser._id,
+  });
+
+  try {
+    await sendUserWelcomeEmail(user.email, {
+      role: "SUPER_ADMIN",
+      companyName: null,
+    });
+  } catch (error) {
+    logger.error(error);
+  }
+
+  return user;
 };
