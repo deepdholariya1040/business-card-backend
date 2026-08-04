@@ -43,6 +43,7 @@
     "mongoose": "^8.18.0",
     "morgan": "^1.10.1",
     "multer": "^2.0.2",
+    "node-addon-api": "^8.9.1",
     "nodemailer": "^6.9.16",
     "passport": "^0.7.0",
     "passport-google-oauth20": "^2.0.0",

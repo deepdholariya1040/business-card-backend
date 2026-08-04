@@ -1,20 +1,28 @@
-FROM node:20-alpine AS base
+FROM node:22-alpine AS base
 
-# sharp/heic-convert need these at build time on alpine
-RUN apk add --no-cache libc6-compat vips-dev
+# Required packages for sharp/node-gyp on Alpine
+RUN apk add --no-cache \
+    libc6-compat \
+    vips-dev \
+    python3 \
+    make \
+    g++
 
 WORKDIR /app
 
 COPY package*.json ./
+
+# Install production dependencies
 RUN npm ci --omit=dev
 
 COPY . .
 
-# Uploaded images must persist across restarts - mount a volume here
-# in docker-compose.yml / your platform's volume settings.
-RUN mkdir -p src/uploads/originals
+# Uploaded images must persist across restarts.
+# Mount a persistent volume here in Railway.
+RUN mkdir -p /app/src/uploads/originals
 
 ENV NODE_ENV=production
+
 EXPOSE 5000
 
 USER node
