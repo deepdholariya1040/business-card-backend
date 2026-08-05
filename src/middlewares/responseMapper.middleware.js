@@ -1,9 +1,15 @@
 import { buildImageUrl } from "../utils/fileUrl.js";
 
+// const SENSITIVE_KEYS = new Set([
+//   "refreshToken",
+//   "otpHash",
+//   "otp",
+//   "__v",
+// ]);
+
 const SENSITIVE_KEYS = new Set([
   "refreshToken",
   "otpHash",
-  "otp",
   "__v",
 ]);
 

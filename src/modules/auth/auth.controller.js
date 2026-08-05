@@ -231,6 +231,8 @@ export const sendLoginOtp = asyncHandler(async (req, res) => {
     userAgent: req.headers["user-agent"],
   });
 
+  console.log("LOGIN OTP RESULT:", result);
+
   res
     .status(StatusCodes.OK)
     .json(new ApiResponse(StatusCodes.OK, "OTP sent to your email.", result));
